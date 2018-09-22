@@ -9,7 +9,7 @@ const { emittedOnce } = require('./events-helpers')
 const chai = require('chai')
 const dirtyChai = require('dirty-chai')
 
-const { ipcRenderer, remote } = require('electron')
+const { ipcRenderer, remote, clipboard } = require('electron')
 const { BrowserWindow, webContents, ipcMain, session } = remote
 const { expect } = chai
 
@@ -252,6 +252,51 @@ describe('webContents module', () => {
           })
         }).then(done).catch(done)
       })
+    })
+  })
+
+  describe('devtools window', () => {
+    it('can receive and handle menu events', async function () {
+      this.timeout(120000)
+      w.show()
+      w.loadFile(path.join(fixtures, 'pages', 'key-events.html'))
+      // Ensure the devtools are loaded
+      w.webContents.closeDevTools()
+      const opened = emittedOnce(w.webContents, 'devtools-opened')
+      w.webContents.openDevTools()
+      await opened
+      await emittedOnce(w.webContents.devToolsWebContents, 'did-finish-load')
+      w.webContents.devToolsWebContents.focus()
+
+      // Focus an input field
+      await w.webContents.devToolsWebContents.executeJavaScript(
+        `const input = document.querySelector('html /deep/ .toolbar-input-prompt.text-prompt');
+        input.focus();`
+      )
+
+      // Write something to the clipboard
+      clipboard.writeText('test value')
+
+      // Fake a paste request
+      w.webContents.devToolsWebContents.sendInputEvent({
+        type: 'keyDown',
+        modifiers: process.platform === 'darwin' ? ['command'] : ['control'],
+        keyCode: 'v'
+      })
+
+      const start = Date.now()
+      let val
+
+      // Check every now and again for the pasted value (paste is async)
+      while (val !== 'test value' && Date.now() - start <= 1000) {
+        val = await w.webContents.devToolsWebContents.executeJavaScript(
+          `document.querySelector('html /deep/ .toolbar-input-prompt.text-prompt').innerText`
+        )
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+
+      // Once we're done expect the paste to have been successful
+      expect(val).to.equal('test value', 'value should eventually become the pasted value')
     })
   })
 
