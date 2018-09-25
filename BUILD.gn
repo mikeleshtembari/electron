@@ -760,8 +760,16 @@ group("electron_tests") {
   testonly = true
 
   deps = [
-    ":blink_unittests",
     ":chromium_browsertests",
+    ":electron_unittests",
+  ]
+}
+
+group("electron_unittests") {
+  testonly = true
+
+  deps = [
+    ":blink_unittests",
     ":chromium_unittests",
   ]
 }

@@ -354,36 +354,39 @@ steps-native-tests: &steps-native-tests
         at: .
     - *step-depot-tools-add-to-path
     - *step-setup-env-for-build
-
     - *step-electron-gn-gen
+
+    # TODO(alexeykuzmin): Use this list to split tests.
     - run:
-        name: List native tests
+        name: List tests
         command: |
-          cd src
-          python electron/script/native-tests.py list \
-            --config electron/script/tests.yml > testslist.txt
+          python src/electron/script/native-tests.py list \
+            --config $TESTS_CONFIG > tests_list.txt
+
     # TODO(alexeykuzmin): Build only a subset of all tests.
     - run:
-        name: Build native tests
+        name: Build tests
         command: |
           cd src
-          ninja -C out/Default electron:electron_tests
+          ninja -C out/Default $BUILD_TARGET
+    - *step-show-sccache-stats
+
+    - *step-setup-linux-for-headless-testing
     # TODO(alexeykuzmin): Run only a subset of all tests.
-    # --binary $(circleci tests split testslist.txt)
+    # --binary $(circleci tests split tests_list.txt)
     - run:
-        name: Run native tests
+        name: Run tests
         command: |
-          cd src
-          mkdir tests_results
-          python electron/script/native-tests.py run \
-            --config electron/script/tests.yml \
-            --tests-dir out/Default \
-            --output-dir tests_results
+          mkdir test_results
+          python src/electron/script/native-tests.py run \
+            --config $TESTS_CONFIG \
+            --tests-dir src/out/Default \
+            --output-dir test_results
+
     - store_artifacts:
-        path: src/tests_results
-        destination: results
+        path: test_results
     - store_test_results:
-        path: src/tests_results
+        path: test_results
 
 steps-verify-ffmpeg: &steps-verify-ffmpeg
   steps:
@@ -629,13 +632,23 @@ jobs:
     <<: *steps-build-mac
 
   # Layer 3: Tests.
-  linux-x64-native-tests:
+  linux-x64-unittests:
     <<: *machine-linux-2xlarge
     environment:
       <<: *env-testing-build
+      BUILD_TARGET: electron:electron_unittests
+      TESTS_CONFIG: src/electron/script/unittests.yml
     <<: *steps-native-tests
     # TODO(alexeykuzmin): Use parallelism.
     # parallelism: 4  # https://xkcd.com/221/
+
+  linux-x64-browsertests:
+    <<: *machine-linux-2xlarge
+    environment:
+      <<: *env-testing-build
+      BUILD_TARGET: electron:electron_browsertests
+      TESTS_CONFIG: src/electron/script/browsertests.yml
+    <<: *steps-native-tests
 
   linux-x64-testing-tests:
     <<: *machine-linux-medium
@@ -680,68 +693,75 @@ workflows:
   build-linux:
     jobs:
       - linux-checkout
-      - linux-arm-checkout
-      - linux-arm64-checkout
+#      - linux-arm-checkout
+#      - linux-arm64-checkout
 
-      - linux-x64-debug:
+      - linux-x64-browsertests:
           requires:
             - linux-checkout
-      - linux-x64-testing:
+      - linux-x64-unittests:
           requires:
             - linux-checkout
-      - linux-x64-testing-tests:
-          requires:
-            - linux-x64-testing
-      - linux-x64-ffmpeg:
-          requires:
-            - linux-checkout
-      - linux-x64-testing-verify-ffmpeg:
-          requires:
-            - linux-x64-testing
-            - linux-x64-ffmpeg
-
-      - linux-ia32-debug:
-          requires:
-            - linux-checkout
-      - linux-ia32-testing:
-          requires:
-            - linux-checkout
-      - linux-ia32-testing-tests:
-          requires:
-            - linux-ia32-testing
-      - linux-ia32-ffmpeg:
-          requires:
-            - linux-checkout
-      - linux-ia32-testing-verify-ffmpeg:
-          requires:
-            - linux-ia32-testing
-            - linux-ia32-ffmpeg
-
-      - linux-arm-debug:
-          requires:
-            - linux-arm-checkout
-      - linux-arm-testing:
-          requires:
-            - linux-arm-checkout
-      - linux-arm-ffmpeg:
-           requires:
-             - linux-arm-checkout
-      - linux-arm-mksnapshot:
-          requires:
-            - linux-arm-checkout
-
-      - linux-arm64-debug:
-          requires:
-            - linux-arm64-checkout
-      - linux-arm64-testing:
-          requires:
-            - linux-arm64-checkout
-      - linux-arm64-ffmpeg:
-           requires:
-             - linux-arm64-checkout
-      - linux-arm64-mksnapshot:
-          requires:
-            - linux-arm64-checkout
+#
+#      - linux-x64-debug:
+#          requires:
+#            - linux-checkout
+#      - linux-x64-testing:
+#          requires:
+#            - linux-checkout
+#      - linux-x64-testing-tests:
+#          requires:
+#            - linux-x64-testing
+#      - linux-x64-ffmpeg:
+#          requires:
+#            - linux-checkout
+#      - linux-x64-testing-verify-ffmpeg:
+#          requires:
+#            - linux-x64-testing
+#            - linux-x64-ffmpeg
+#
+#      - linux-ia32-debug:
+#          requires:
+#            - linux-checkout
+#      - linux-ia32-testing:
+#          requires:
+#            - linux-checkout
+#      - linux-ia32-testing-tests:
+#          requires:
+#            - linux-ia32-testing
+#      - linux-ia32-ffmpeg:
+#          requires:
+#            - linux-checkout
+#      - linux-ia32-testing-verify-ffmpeg:
+#          requires:
+#            - linux-ia32-testing
+#            - linux-ia32-ffmpeg
+#
+#      - linux-arm-debug:
+#          requires:
+#            - linux-arm-checkout
+#      - linux-arm-testing:
+#          requires:
+#            - linux-arm-checkout
+#      - linux-arm-ffmpeg:
+#           requires:
+#             - linux-arm-checkout
+#      - linux-arm-mksnapshot:
+#          requires:
+#            - linux-arm-checkout
+#
+#      - linux-arm64-debug:
+#          requires:
+#            - linux-arm64-checkout
+#      - linux-arm64-testing:
+#          requires:
+#            - linux-arm64-checkout
+#      - linux-arm64-ffmpeg:
+#           requires:
+#             - linux-arm64-checkout
+#      - linux-arm64-mksnapshot:
+#          requires:
+#            - linux-arm64-checkout
 
   build-mac-fork-prs:
     jobs:
@@ -773,7 +793,10 @@ workflows:
       - linux-arm-checkout
       - linux-arm64-checkout
 
-      - linux-x64-native-tests:
+      - linux-x64-browsertests:
+          requires:
+            - linux-checkout
+      - linux-x64-unittests:
           requires:
             - linux-checkout
 
